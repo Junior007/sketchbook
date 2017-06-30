@@ -1,18 +1,14 @@
-/*
-  AnalogReadSerial
-  Reads an analog input on pin 0, prints the result to the serial monitor.
-  Attach the center pin of a potentiometer to pin A0, and the outside pins to +5V and ground.
+const int temp_p = A4;
+const int luz_p = A5;
+const int lectura_p = 2;
 
- This example code is in the public domain.
- */
 
-// the setup routine runs once when you press reset:
 void setup() {
   // initialize serial communication at 9600 bits per second:
   Serial.begin(9600);
   analogReference(INTERNAL);//ref 1.1 volt
   //sensores
-  pinMode(2, OUTPUT);
+  pinMode(lectura_p, OUTPUT);
 }
 
 // the loop routine runs over and over again forever:
@@ -20,22 +16,21 @@ void loop() {
   //digitalWrite(2,LOW); //abre lectura
   //digitalWrite(2,HIGH); //cierra lectura
   delay(1000);
-  // read the input on analog pin 0:
-  int tempSensorValor = analogRead(A4);
-  int temp = tempSensorValor/9.31;
-  // print out the value you read:
-  Serial.println(temp);
-  int luzSensorValor = analogRead(A5);
-  // print out the value you read:
-  Serial.println(luzSensorValor);
-  Serial.println("Hola");
+
+
+  Serial.println(temp());
+
+  Serial.println(luz());
+  
+  Serial.println("OK");
+  
   delay(5000);        // delay in between reads for stability
 
   while (Serial.available() > 0) {
     if(Serial.read()=='1'){
-      digitalWrite(2,HIGH);  
+      digitalWrite(lectura_p,HIGH);  
     }else if(Serial.read()=='0'){
-      digitalWrite(2,LOW);
+      digitalWrite(lectura_p,LOW);
     }
     Serial.print(Serial.read());
 
@@ -43,3 +38,23 @@ void loop() {
 
   
 }
+
+//
+float temp(){
+  //valor = 0    => 0V   => 2ºC
+  //valor = 1023 => 1.1V => 2+(1.1/0.01) ºC = 112 º C. Por encima ya no podemos leer con esta configuracion
+  //valor = ???? => 1.48V =>150ºC
+  // T  = 2 + (1.1 x valor)/(1023 * 0.01) 
+  float valor = analogRead(temp_p);
+  float temp = 2.0 + (1.1 * valor)/(1023.0 * 0.01) ;
+  return temp;
+}
+//
+int luz(){
+  int valor = analogRead(luz_p);
+  return valor;
+}
+
+
+
+
