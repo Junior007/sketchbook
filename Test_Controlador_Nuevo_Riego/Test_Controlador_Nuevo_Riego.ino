@@ -15,12 +15,25 @@ Feel free to use and modify this litle, litle, litle software
  * in setup() to match the Atmel datasheet recommendations
 */
 
+//Test configuracion
+
+boolean test = true;
+//Pines sensores
 const int temp_p = A4;
 const int luz_p = A5;
-const int lectura_p = 2;
-
-
+//pin habilita lectura
+const int pinHabilitarSensores = 2;
+const boolean lecturaHabilitada = LOW;
+//pines h-bridge
+const int pinCerrar_1 = 13;
+const int pinAbrir_1 = 14;
 //****************
+//estado del riego
+int estado = 'A';
+int cDormido=0;
+int nDormidoMediaHora=225;// 225 sueños son 8*225 = 1800s = media hora
+
+
 
 #include <avr/sleep.h>
 #include <avr/wdt.h>
@@ -83,49 +96,147 @@ void system_sleep() {
 
 ISR(WDT_vect) {
   //I don't have anything to do here
-#if defined(__AVR_ATmega328P__)//for testing purpose
+  if(test){//for testing purpose
    Serial.println("wake up"); 
-#endif    
+  }    
 }
 //*************************************************************
 
 void setup() {
-  // initialize serial communication at 9600 bits per second:
+
+if(test){//for testing purpose
+  nDormidoMediaHora=3;//2 minutos modificamos el nmeroo de sueños si testeamos para que vaya ms rpido
+  int pinCerrar_1 = 8;
+  int pinAbrir_1 = 9;
   Serial.begin(9600);
-  analogReference(INTERNAL);//ref 1.1 volt
-  //sensores
-  pinMode(lectura_p, OUTPUT);
+  Serial.println("Modo test");
+}  
+
+  analogReference(INTERNAL);//ref 1.1 volt, necesary for LM35 temp sensor
+
+  Abrir();
+  Cerrar();
+
   setup_watchdog(9);
 }
 
 // the loop routine runs over and over again forever:
 void loop() {
-  digitalWrite(2,HIGH); //cierra lectura
-  system_sleep();
-  digitalWrite(2,LOW); //abre lectura
-  delay(10);
-  Serial.println(temp());
+if(test){//for testing purpose
+   Serial.println("Testing"); 
+   Serial.print("nDormidoMediaHora: "); 
+   Serial.println(nDormidoMediaHora); 
 
-  Serial.println(luz());
-  
-  Serial.println("OK");
-  
-  delay(5000);        // delay in between reads for stability
-
-  while (Serial.available() > 0) {
-    if(Serial.read()=='1'){
-      digitalWrite(lectura_p,HIGH);  
-    }else if(Serial.read()=='0'){
-      digitalWrite(lectura_p,LOW);
-    }
-    Serial.print(Serial.read());
-
-  }
-
-  
+   Serial.println(char(estado)); 
+   Serial.print("cDormido: "); 
+   Serial.println(cDormido); 
+   delay(1000);
 }
 
-//
+  DeshabilitarSensores(); //cierra lectura
+
+  system_sleep();
+
+  cDormido++;
+
+  switch(estado) {
+      case 'A':
+          estadoA();
+          break;
+      case 'B':
+          estadoB();
+          break;
+      case 'C':
+          estadoC();
+          break;
+      case 'D':
+          estadoD();
+          break;
+      default:
+          estado = 'A';
+  }   
+  
+}
+//**************************************************************** 
+void estadoA(){
+  if(cDormido>=nDormidoMediaHora*2){
+    cDormido=0;
+    //Activa la lectura sensores
+    //enabled sensor feed    
+    HabilitarSensores();
+    
+    //Dark?
+    if(!dia()){
+      estado ='B';
+    }
+    //Desactiva la lectura sensores
+    //disable sensor feed
+    DeshabilitarSensores();
+  }
+}
+//**************************************************************** 
+void estadoB(){
+  //Se duerme y despierta hasta pasado una hora
+  //sleep and wake up until one hour
+  if(cDormido>=nDormidoMediaHora * 2){
+    cDormido=0;
+    HabilitarSensores();
+    //Wet?
+    if(humedo() ){
+      estado ='D'; // pasa al estado de sueño profundo
+    }else{
+      estado ='C';//pasa al estado de riego
+    }
+    //Desactiva la lectura sensores
+    //disable sensor feed
+    DeshabilitarSensores();
+  }
+}
+//**************************************************************** 
+void estadoC(){
+  if(cDormido==1){
+    Abrir();    
+  }
+  if(cDormido>=(nDormidoMediaHora/3)){//10 minutos regando
+    cDormido=0;
+    Cerrar();
+    estado ='D';//pasa al estado de sueño profundo
+  }
+
+}
+//**************************************************************** 
+void estadoD(){
+  if(cDormido>=(nDormidoMediaHora * 42)){//22 horas durmiendo y despertndose
+    cDormido=0;
+    estado ='A'; //pasa al estado de alerta
+  }
+}
+//**************************************************************** 
+//pulso de 30ms para abrir
+void Abrir(){
+  pinMode(pinAbrir_1,OUTPUT);
+  digitalWrite(pinAbrir_1, HIGH);
+  delay(30);
+  digitalWrite(pinAbrir_1, LOW);
+  #if (test)//for testing purpose
+    Serial.println("Riega");
+  #endif  
+}
+//**************************************************************** 
+//pulso de 30ms para cerrar
+void Cerrar(){
+  pinMode(pinCerrar_1,OUTPUT);
+  digitalWrite(pinCerrar_1, HIGH);
+  delay(30);
+  digitalWrite(pinCerrar_1, LOW);
+  #if (test)//for testing purpose
+    Serial.println("Cierrar riego");
+  #endif  
+
+}
+
+
+//*******************************************
 float temp(){
   //valor = 0    => 0V   => 2ºC
   //valor = 1023 => 1.1V => 2+(1.1/0.01) ºC = 112 º C. Por encima ya no podemos leer con esta configuracion
@@ -138,9 +249,32 @@ float temp(){
 //
 int luz(){
   int valor = analogRead(luz_p);
+  valor=valor/1024.0*100.0;
   return valor;
+}
+//**************************************************************** 
+boolean dia(){
+  return luz()<20.0;
+}
+//**************************************************************** 
+boolean humedo(){
+  return 0;
+  /*
+  humedad = analogRead(pinSensorHumedad)/1024.0*100.0;
+
+  return (humedad>20.0);
+  */
 }
 
 
-
-
+//**************************************************************** 
+void HabilitarSensores(){
+  pinMode(pinHabilitarSensores,OUTPUT);    
+  digitalWrite(pinHabilitarSensores,lecturaHabilitada);
+  delay(2);  //para estabilizar la lectura
+}
+//**************************************************************** 
+void DeshabilitarSensores(){
+  pinMode(pinHabilitarSensores,OUTPUT); 
+  digitalWrite(pinHabilitarSensores,!lecturaHabilitada);
+}
