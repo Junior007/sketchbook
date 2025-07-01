@@ -17,7 +17,7 @@ Feel free to use and modify this litle, litle, litle software
 
 //Test configuracion
 
-boolean test = true;
+boolean test = false;
 //Pines sensores
 const int temp_p = A4;
 const int luz_p = A0;
@@ -25,8 +25,8 @@ const int luz_p = A0;
 const int pinHabilitarSensores = 2;
 const boolean lecturaHabilitada = LOW;
 //pines h-bridge
-const int pinCerrar_1 = 8;
-const int pinAbrir_1 = 7;
+const int pinCerrar_1 = 7;
+const int pinAbrir_1 = 8;
 //****************
 //estado del riego
 int estado = 'A';
@@ -35,11 +35,14 @@ int nDormidoMediaHora=225;// 225 sueños son 8*225 = 1800s = media hora
 //****************
 float tempAnterior = 0; // Guarda la temperatura anterior
 float umbralNoche = 2.0; // Define un umbral de caída de temperatura
+int bajadasSuaves = 0;  //Contamos varias bajadas de temperatura
 //************
-float tempActual = 0;
+//float tempActual = 0;
 float sumaTemp = 0;
 float tempMedia = 0;
-int cuentaLecturas = 0;
+float cuentaLecturas = 0;
+//************************
+int ciclosRiego = 0;
 int divisorMediaHora = 0;
 //****************************
 int diasSinRiego = 0;
@@ -114,16 +117,18 @@ ISR(WDT_vect) {
 void setup() {
 
 if(test){//for testing purpose
-  //nDormidoMediaHora=3;//2 minutos modificamos el nmeroo de sueños si testeamos para que vaya ms rpido
-  int pinCerrar_1 = 8;
-  int pinAbrir_1 = 9;
+  nDormidoMediaHora=2;//2 minutos modificamos el nmeroo de sueños si testeamos para que vaya ms rpido
   Serial.begin(9600);
   Serial.println("Modo test");
 }  
 
   analogReference(INTERNAL);//ref 1.1 volt, necesary for LM35 temp sensor
 
+
+  digitalWrite(pinAbrir_1, LOW);
+  digitalWrite(pinCerrar_1, LOW);
   Abrir();
+  delay(2000);
   Cerrar();
 
   setup_watchdog(9);
@@ -131,29 +136,21 @@ if(test){//for testing purpose
 
 // the loop routine runs over and over again forever:
 void loop() {
-if(test){//for testing purpose
-   Serial.println("Testing"); 
-   Serial.print("nDormidoMediaHora: "); 
-   Serial.println(nDormidoMediaHora); 
-
-   Serial.println(char(estado)); 
-   Serial.print("cDormido: "); 
-   Serial.println(cDormido); 
-   HabilitarSensores();
-   Serial.print("Temp :");
-   Serial.println(temp());
-   Serial.print("Luz :");
-     Abrir();     
-
-   delay(1000);
-   Cerrar();
-}
 
   DeshabilitarSensores(); //cierra lectura
 
   system_sleep();
 
   cDormido++;
+
+
+  if(test){
+    Serial.println("En el loop :");
+    Serial.println((char)estado);
+    Serial.println("cDormido");
+    Serial.println(cDormido);
+    delay(1000);
+  }
 
   switch(estado) {
       case 'A': //Estado de alerta, está verificando la temperatura para ver cuando cae
@@ -168,7 +165,7 @@ if(test){//for testing purpose
       case 'D': //duerme durante 22 hora
           estadoD();
           break;
-      case 'E': //estado extra para regar si han pasado x dias sin regar por temperaturas bajas
+      case 'E': //estado extra para regar si han pasado 7 dias sin regar por temperaturas bajas
           estadoE();
           break;          
       default:
@@ -191,6 +188,17 @@ void estadoA(){
     //Desactiva la lectura sensores
     //disable sensor feed
     DeshabilitarSensores();
+
+    
+    if(test){
+      Serial.println("En A :");
+      Serial.println("tempAnterior");
+      Serial.println(tempAnterior);
+      Serial.println("tempMedia");
+      Serial.println(tempMedia);
+      
+      delay(1000);
+    }
   }
 }
 //**************************************************************** 
@@ -199,7 +207,7 @@ void estadoB(){
   //sleep and wake up until one hour
   if(cDormido>=nDormidoMediaHora * 2){
 
-    cDormido=0;
+    cDormido = 0;
 
     estado ='C';//pasa al estado de riego
 
@@ -207,22 +215,24 @@ void estadoB(){
 }
 //**************************************************************** 
 void estadoC(){
-  int ciclosRiego = 0;
-
+  
   if(cDormido==1){
     //Establecemos tiempo de riego y reiniciamos variables temperatura
-    sumaTemp += tempActual;
-    cuentaLecturas++;
-    tempMedia = sumaTemp/cuentaLecturas;
+    sumaTemp = 0;
+    cuentaLecturas = 0;
+    
+    divisorMediaHora = map(tempMedia, 15, 40, 350, 6);
+    //40 grados => riego durante 30 minutos / 6 = 5 minutos
 
-    divisorMediaHora = map(tempMedia, 15, 40, 350, 3);
-    ciclosRiego = nDormidoMediaHora/divisorMediaHora;  //divisorMediaHora =3 =>10 minutos regando
+    ciclosRiego = nDormidoMediaHora/divisorMediaHora;  //divisorMediaHora =6 =>5 minutos regando
+
     if(ciclosRiego == 0){
-      
+
       diasSinRiego++;
- 
+
+      cDormido = 0;
+
       if(diasSinRiego>6){
-        cDormido = 0;
         estado ='E';//pasa al estado de riego semanal
       }else{
         estado ='D';//pasa al estado de sueño profundo sin regar
@@ -231,7 +241,7 @@ void estadoC(){
     }
   }
   if(ciclosRiego > 0){
-    if(cDormido==2){
+    if(cDormido == 1){
       diasSinRiego = 0;
       Abrir();  
     }
@@ -245,7 +255,7 @@ void estadoC(){
 }
 //**************************************************************** 
 void estadoD(){
-  if(cDormido>=(nDormidoMediaHora * 42)){//22 horas durmiendo y despertndose
+  if(cDormido>=(nDormidoMediaHora * 42)){//21 horas durmiendo y despertndose
     cDormido=0;
     estado ='A'; //pasa al estado de alerta
   }
@@ -256,7 +266,7 @@ void estadoE(){
     diasSinRiego = 0;
     Abrir();  
   }
-  if(cDormido>=(nDormidoMediaHora/3)){//divisorMediaHora =3 =>10 minutos regando
+  if(cDormido>=(nDormidoMediaHora/6)){//divisorMediaHora =6 =>5 minutos regando
     cDormido=0;
     Cerrar();
     estado ='D';//pasa al estado de sueño profundo
@@ -267,24 +277,16 @@ void estadoE(){
 void Abrir(){
   pinMode(pinAbrir_1,OUTPUT);
   digitalWrite(pinAbrir_1, HIGH);
-  delay(5000);
+  delay(30);
   digitalWrite(pinAbrir_1, LOW);
-  #if (test)//for testing purpose
-    Serial.println("Riega");
-  #endif  
-  Serial.println("Riega");
 }
 //**************************************************************** 
 //pulso de 30ms para cerrar
 void Cerrar(){
   pinMode(pinCerrar_1,OUTPUT);
   digitalWrite(pinCerrar_1, HIGH);
-  delay(5000);
+  delay(30);
   digitalWrite(pinCerrar_1, LOW);
-  #if (test)//for testing purpose
-    Serial.println("Cierrar riego");
-  #endif  
-
 }
 
 
@@ -294,6 +296,18 @@ float temp(){
   //valor = 1023 => 1.1V => 2+(1.1/0.01) ºC = 112 º C. Por encima ya no podemos leer con esta configuracion
   //valor = ???? => 1.48V =>150ºC
   // T  = 2 + (1.1 x valor)/(1023 * 0.01) 
+  if(test){
+    
+    Serial.print("Esperando temp: ");
+    delay(3000);
+    if (Serial.available() > 0) {
+      float dato = Serial.parseFloat();  // Lee un número decimal (float)
+      Serial.print("Número recibido: ");
+      Serial.println(dato, 4);  // Imprime con 4 decimales de precisión
+      return dato;
+    }
+  }
+
   float valor = analogRead(temp_p);
   float temp = 2.0 + (1.1 * valor)/(1023.0 * 0.01) ;
   return temp;
@@ -302,7 +316,18 @@ float temp(){
 //**************************************************************
 boolean noche() {
   float tempActual = temp();
+
+  // Evaluamos la bajada suave
+  if ((tempAnterior - tempActual) >= 0.5) {
+    bajadasSuaves++;
+  } else {
+    bajadasSuaves = 0;
+  }
+
   boolean esNoche = (tempAnterior - tempActual) >= umbralNoche; 
+
+  esNoche= esNoche || bajadasSuaves >= 3;
+  
   tempAnterior = tempActual; // Guarda el valor actual para la próxima comparación
 
   sumaTemp += tempActual;
@@ -325,4 +350,4 @@ void DeshabilitarSensores(){
   pinMode(pinHabilitarSensores,OUTPUT); 
   digitalWrite(pinHabilitarSensores,!lecturaHabilitada);
 }
-
+//**********************
