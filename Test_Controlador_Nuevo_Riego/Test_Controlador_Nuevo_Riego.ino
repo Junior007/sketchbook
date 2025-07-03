@@ -232,7 +232,7 @@ void estadoC(){
 
       cDormido = 0;
 
-      if(diasSinRiego>6){
+      if(diasSinRiego>4){
         estado ='E';//pasa al estado de riego semanal
       }else{
         estado ='D';//pasa al estado de sueño profundo sin regar
@@ -318,11 +318,12 @@ boolean noche() {
   float tempActual = temp();
 
   // Evaluamos la bajada suave
-  if ((tempAnterior - tempActual) >= 0.5) {
-    bajadasSuaves++;
-  } else {
-    bajadasSuaves = 0;
-  }
+  float gradiente = tempAnterior - tempActual;
+
+  if (gradiente >= 0.5)
+      bajadasSuaves++;
+  else if (gradiente < -0.5)
+      bajadasSuaves = 0;
 
   boolean esNoche = (tempAnterior - tempActual) >= umbralNoche; 
 
